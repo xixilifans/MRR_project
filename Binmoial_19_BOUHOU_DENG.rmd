@@ -1,0 +1,358 @@
+---
+title: "MRR Project on : Behavior of the urban traffic of the city of Sao Paulo in Brazil Data Set."
+author: "Binmoial 19 : Imad BOUHOU  &&  Deng YUFENG"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(out.height='11cm',out.width ='11cm',dpi=200,fig.align='center',fig.show='hold')
+library(ggplot2)
+library(glmnet)
+library(corrplot)
+```
+
+
+## 1 - Introduction :
+To observe the behavior of the urban traffic of the city of Sao paulo in Brazil a database was filled out with records in 2009 between December 14  to December 18 (Monday to Friday) during the day from 7:00 to 20:00 every 30 minutes. \newline
+
+The data set has information about number of immobilized buses ,broken trucks and vehicle excess , number of accident victims and running over , also number of fire vehicles ,the data set considered also occurrences involving freight ,incident involving dangerous freight , the lack of electricity in the areas affected ,number of fire incidents , number of flooding areas , manifestations , defects in the network of trolleybuses , trees on the road and at last we have number of nonfunctional and intermittent semaphores.\newline
+
+We are going to upload the data to our environment , and change the name of the target variable to 'y' , and change the name of hours to 'h' .
+```{r echo=T}
+tab=read.csv(file="~/Bureau/projet-mrr/data.csv",sep=";",stringsAsFactors = FALSE)
+# slowness in traffic will be denoted "y"
+names(tab)[ncol(tab)]="y"
+names(tab)[1]="h"
+```
+## 2 - Data preparation :
+The data set has no missing values but it has a column of hours so we need to transform this periodic predictor to be able to fit it in the model later , using the following transformation : \newline $\beta_{1}cos(2\pi\frac{i}{24}),\beta_{2}sin(2\pi\frac{i}{24})$ where i is the values in the column hours.\newline
+Which means we need to add two columns instead of the hours variable . \newline 
+This transformation is done with the script below :
+```{r echo=TRUE}
+pi=3.14
+
+cosh=cos(2 * 3.14 * (tab[1]+14) / 48)
+sinh=sin(2 * 3.14 * (tab[1]+14) / 48)
+tab=data.frame(cbind(cosh,sinh,tab[,-1]))
+names(tab)[c(1,2)]=c("cosh","sinh")
+```
+We can display the link between the target and the other variables using the correlation matrix that shows correlations between every two variables present in the database .
+```{r echo=TRUE}
+tab1=tab;
+names(tab1)=c("h","IB","BT","VE","AV","RO","FV","OIF","IIDF"
+              ,"LOE","F","PF","M","DNT","TR","SO","IS","y")
+corrplot(cor(tab1),type="upper",
+         title="FIGURE 1 : correlation matrix between all the variables.",
+         mar=c(0,0,1,0),
+         number.cex=0.75)
+```
+We see that the there is a relation that can be considered strong which is between the target (y) Slowness in the traffic and (h) hours during the day.\newline
+We can also consider a relation between the target (y) Slowness in the traffic and lack of electricity , and a relation between the target and (PF) points of flooding.
+Also there is no need to scale the data because variables have almost the same unit, and there is not a variable that can dominate calculations. 
+
+## 3 - Relation between the target variable and the time :
+Using the column of the Slowness in traffic and the column of hours we found that the correlation between them is $0.72$ which is a sign of the existence of a strong relation between the two which can be demonstrated by the FIG 2 below .
+```{r ,echo=FALSE}
+d=c("Day 1","Day 2","Day 3","Day 4","Day 5")
+ggplot(data.frame(tab), aes(x=c(1:nrow(tab)), y=y))+ 
+  geom_line() +
+  ggtitle("                         FIGURE 2 : Evolution of Slowness in traffic during 5 days") +
+  labs(y= "Slowness in traffic with %") +
+  geom_vline(xintercept = c(27,2*27,3*27,4*27),linetype="dashed",color="red") +
+  annotate("text" ,x=15, y = -2 , label = d[1],colour="red") +
+   annotate("text" ,x=40, y = -2 , label = d[2],colour="red") +
+   annotate("text" ,x=65, y = -2 , label = d[3],colour="red") +
+   annotate("text" ,x=95, y = -2 , label = d[4],colour="red") +
+   annotate("text" ,x=125, y = -2 , label = d[5],colour="red") +
+  scale_x_discrete(name ="Days")
+```
+The behavior of the slowness in traffic during 5 days has almost the same behavior especially for the last 4 days , at the begging of the day (7:00) until mid-day it's almost stable , then after it increases exponentially to hit the pick then falls again. \newline
+The graph above demonstrates the existence of strong relation between time and slowness in traffic .
+
+
+
+
+## 4 - Methodology :
+Our Data set was filled out during 5 days with records in 2009 between December 14  to December 18 (Monday to Friday) during the day from 7:00 to 20:00 every 30 minutes. \newline \newline
+
+
+Therefor we can not split the data randomly and mix days with others so to perform regression on it, we are going to divide it into 5 parts where each part presents the data set filled out in one day, then we will chose 4 randomly to be the training data and the last one to test the model. \newline \newline
+
+
+To find the best model that predicts our target variable , we are going to perform 5 Cross-validation with each method and we compute the cross-validation error and we compare them using box plots .\newline \newline
+
+
+The models performed are OLS modeling, and model selection with stepwise method, \newline then penalized regression with Lasso and Ridge , and two new methods outside the course KNN and Elastic-Net. \newline
+
+\textbf{ 4 . 1 Cross-Validation with OLS method:}
+```{r echo=TRUE}
+# =============== OLS  =====================
+OLS.MSE=c()
+for(i in c(0,1,2,3,4)){
+      test=data.frame(tab[c( (i*27+1): ((i+1)*27) ) ,])
+      
+      xtest=test[,-ncol(test)]
+      
+      training=data.frame(tab[-c( (i*27+1): ((i+1)*27) ) ,])
+      
+      ols <- lm(y~.,data=training)
+      Y.pred=predict.lm(ols,newdata=xtest)
+      MSE=mean((Y.pred-test$y)^2)
+      OLS.MSE=c(OLS.MSE,MSE)
+}
+```
+\newpage
+
+\textbf{ 4 . 2 Cross-Validation with Stepwise variable selection :}
+```{r echo=TRUE}
+# =============== Stepwise  =====================
+STEP.MSE=c()
+for(i in c(0,1,2,3,4)){
+      test=data.frame(tab[c( (i*27+1): ((i+1)*27) ) ,])
+      
+      xtest=test[,-ncol(test)]
+      
+      training=data.frame(tab[-c( (i*27+1): ((i+1)*27) ) ,])
+      
+      STEP <- step(ols, direction = "both",trace=FALSE)
+      Y.pred=predict.lm(STEP,newdata=xtest)
+      MSE=mean((Y.pred-test$y)^2)
+      STEP.MSE=c(STEP.MSE,MSE)
+}
+```
+
+\textbf{ 4 . 3 Cross-Validation with Ridge and Lasso's method :} \newline
+In this part we are going perform both Ridge and Lasso's methods in the same script to minimize the size of the code.
+
+```{r echo=TRUE}
+# ================= LASSO =====================
+
+# compute lambda.min with Cross-validation 
+CV.errors.lasso=matrix(NA,ncol=1001,nrow=0)
+
+CV.errors.ridge=matrix(NA,ncol=1001,nrow=0)
+
+for (i in c(0,1,2,3,4)){
+      test=as.matrix(tab[c( (i*27+1): ((i+1)*27) ) ,])
+      xtest=test[,-ncol(test)]
+      ytest=test[,ncol(test)]
+      
+      training=as.matrix(tab[-c( (i*27+1): ((i+1)*27) ) ,])
+      
+      lasso <- glmnet(training[,-ncol(tab)],
+                      training[,ncol(tab)],
+                      family="gaussian",alpha=1,standardize=FALSE,lambda=seq(from=0,to=0.2,by=0.2/1000))
+      
+      ridge <- glmnet(training[,-ncol(tab)],
+                      training[,ncol(tab)],
+                      family="gaussian",alpha=0,standardize=FALSE,lambda=seq(from=0,to=1,by=1/1000))
+      
+      Y.lasso=predict(lasso,newx=xtest,type="response",s=lasso$lambda)
+      mse.lasso=apply(X=(Y.lasso-ytest)^2,MARGIN=2,FUN=mean)
+      CV.errors.lasso=rbind(CV.errors.lasso,mse.lasso)
+      
+      Y.ridge=predict(ridge,newx=xtest,type="response",s=ridge$lambda)
+      mse.ridge=apply(X=(Y.ridge-ytest)^2,MARGIN=2,FUN=mean)
+      CV.errors.ridge=rbind(CV.errors.ridge,mse.ridge)
+}
+
+CV.errors.lasso=apply(X=CV.errors.lasso,MARGIN=2,FUN=sum)/5
+CV.errors.ridge=apply(X=CV.errors.ridge,MARGIN=2,FUN=sum)/5
+
+j=which(CV.errors.lasso==min(CV.errors.lasso))
+lambda.lasso=lasso$lambda[j]
+
+j=which(CV.errors.ridge==min(CV.errors.ridge))
+lambda.ridge=ridge$lambda[j]
+plot(lasso$lambda,CV.errors.lasso,type="l",
+     xlab="Lambda",
+     ylab="Cross-Validation Errors",
+     main="FIGURE 3 : Evolution of Cross-varlidation Errors \n against Lambda with Lasso's method")
+points(lambda.lasso,min(CV.errors.lasso),type="p",col="red")
+
+plot(ridge$lambda,CV.errors.ridge,
+     type="l",
+     xlab="Lambda",
+     ylab="Cross-Validation Errors",
+     main="FIGURE 4 : Evolution of Cross-varlidation Errors \n against Lambda with Ridge's method")
+points(lambda.ridge,min(CV.errors.ridge),type="p",col="red")
+
+```
+The figures 3 and 4 above show the evolution of Cross-validation Errors against $\lambda$ .
+Using $\lambda$ we found with the help of the script above , we are going to perform a regression with lasso and Ridge's methods . 
+```{r echo=TRUE}
+LASSO.MSE=c() # save errors for each folding to use them in the end for boxplots
+RIDGE.MSE=c()
+for (i in c(0,1,2,3,4)){
+      test=as.matrix(tab[c( (i*27+1): ((i+1)*27) ) ,])
+      xtest=test[,-ncol(test)]
+      ytest=test[,ncol(test)]
+      training=as.matrix(tab[-c( (i*27+1): ((i+1)*27) ) ,])
+      
+      lasso <- glmnet(training[,-ncol(tab)],
+                      training[,ncol(tab)],
+                      family="gaussian",alpha=1,standardize=FALSE,lambda=lambda.lasso)
+      ridge <- glmnet(training[,-ncol(tab)],
+                      training[,ncol(tab)],
+                      family="gaussian",alpha=0,standardize=FALSE,lambda=lambda.ridge)
+      
+      Y.lasso=predict(lasso,newx=xtest,type="response",s=lambda.lasso)
+      mse.lasso=mean((Y.lasso-ytest)^2)
+      LASSO.MSE=c(LASSO.MSE,mse.lasso)
+      
+      Y.ridge=predict(ridge,newx=xtest,type="response",s=lambda.ridge)
+      mse.ridge=mean((Y.ridge-ytest)^2)
+      RIDGE.MSE=c(RIDGE.MSE,mse.ridge)
+}
+```
+
+\newpage
+\textbf{ 4 . 4 Cross-Validation with Elastic-Net method :} \newline
+The elastic net estimator of the regression coefficients generalizes both ridge and LASSO regression, in that it involves both an L1 and an L2 penalty. \newline
+to find the best $\alpha,\lambda$ we are going to calculate $CV(\alpha,\lambda)$ for many values of $\alpha,\lambda$ and save this values in a matrix , then search the minimum value of this matrix and its index will indicate the best $\alpha,\lambda$ for the method , as shown in the script below : 
+```{r echo=TRUE}
+# ==================================== Elastic-Net ============================== 
+
+CV.error.total=matrix(NA,ncol=1001,nrow=0) #columns of this matrix represent tha value of lambdas
+for (al in seq(0.1,0.9,by=1/100)){
+      CV.error=matrix(NA,ncol=1001,nrow=0)
+      for (i in c(0,1,2,3,4)){
+            test=as.matrix(tab[c( (i*27+1): ((i+1)*27) ) ,])
+            xtest=test[,-ncol(test)]
+            ytest=test[,ncol(test)]
+            training=as.matrix(tab[-c( (i*27+1): ((i+1)*27) ) ,])
+            
+            lam=seq(from=0,to=1,by=1/1000)
+            EN <-glmnet(training[,-ncol(tab)],
+                        training[,ncol(tab)],
+                        family="gaussian",alpha=al,standardize=FALSE,lambda=lam)
+            
+            Y=predict(EN,newx=xtest,type="response",s=EN$lambda)
+            mse.en=apply(X=(Y-ytest)^2,MARGIN=2,FUN=mean)
+            CV.error=rbind(CV.error,mse.en) # rows present the values of alpha that's why we do rbind 
+      }
+      CV.error=apply(X=CV.error,MARGIN=2,FUN=sum)/5
+      CV.error.total=rbind(CV.error.total,CV.error)
+}
+
+j=which(CV.error.total==min(CV.error.total),arr.ind=TRUE)
+alpha.min=seq(0.1,0.9,by=1/100)[j[1]]
+lambda.min=EN$lambda[j[2]]
+```
+
+We are going to use the values of $\alpha$ and $\lambda$ that minimizes Cross-validation errors and we are going to use them in the script below :
+```{r echo=TRUE}
+EN.MSE=c()
+for (i in c(0,1,2,3,4)){
+      test=as.matrix(tab[c( (i*27+1): ((i+1)*27) ) ,])
+      xtest=test[,-ncol(test)]
+      ytest=test[,ncol(test)]
+      training=as.matrix(tab[-c( (i*27+1): ((i+1)*27) ) ,])
+      
+      EN <- glmnet(training[,-ncol(tab)],
+                   training[,ncol(tab)],
+                   family="gaussian",alpha=alpha.min,standardize=FALSE,lambda=lambda.min)
+      
+      Y=predict(EN,newx=xtest,type="response",s=lambda.min)
+      mse=mean((Y-ytest)^2)
+      EN.MSE=c(EN.MSE,mse)
+}
+```
+\newpage
+\textbf{ 4 . 5 Cross-Validation with KNN :} \newline
+KNN (K-Nearest Neighbors) can be used for both classification and regression problems. \newline
+An explanation of the algorithm: \newline 
+1-First, the distance between the new point and each training point is calculated. \newline
+2-The closest k data points are selected (based on the distance). \newline 
+3-The average of these data points is the final prediction for the new point.\newline
+Below a function that calculates a matrix where each entry is distance between two individuals of x and y.\newline
+i.e $D(i,j)=distance(x_{i},y_{j})$ using the euclidean distance with $||\ \ ||_{2}$.
+```{r echo=TRUE}
+distt <- function(x,y){
+      D=matrix(0,nrow=nrow(x),ncol=nrow(y))
+      for (i in 1:nrow(x)){
+        for(j in 1:nrow(y)){
+          tmp=x[i,]-y[j,]
+          D[i,j]=sqrt(tmp%*%tmp)
+          
+        }
+      }
+      return(D)
+}
+```
+The script below is an implementation of the KNN algorithm for the studied data set .\newline
+In the script we are going to iterate on the KNN algorithm with many different value of K to see the sensitivity of the method to the value of K .
+```{r echo=TRUE}
+KNN.errors=matrix(NA,ncol=5,nrow=0)
+
+for (K in 2:15 ){
+      KNN.MSE=c()
+      for (i in c(0,1,2,3,4)){
+              Y=c()
+              test=as.matrix(tab[c( (i*27+1): ((i+1)*27) ) ,])
+              # in KNN , we need to scale the data without the target 
+              xtest=scale(test[,-ncol(tab)],center=TRUE,scale=FALSE)
+              
+              training=as.matrix(tab[-c( (i*27+1): ((i+1)*27) ) ,])
+              xtraining=scale(training[,-ncol(tab)],center=TRUE,scale=FALSE)
+              
+              D=distt(xtest,xtraining)
+              sorted.D=t(apply(X=D,MARGIN=1,FUN=sort))
+              sorted.D=sorted.D[,c(1:K)]
+          
+              for(l in 1:nrow(D)){
+                   tmp=0
+                    for(k in 1:K){
+                          dd=sorted.D[l,k]
+                          index=which(as.vector(D[l,])==dd)
+                          tmp=tmp + training[index[1],ncol(training)]
+                    }
+                    Y=c(Y,tmp/K)
+                   
+              }
+              mse=mean((Y-test[,ncol(test)])^2)
+              KNN.MSE=c(KNN.MSE,mse)
+      }
+      KNN.errors=rbind(KNN.errors,KNN.MSE)
+      rownames(KNN.errors)[length(KNN.errors[,1])] <- paste("K=",K," ")
+}
+KNN.errors
+CV.KNN=apply(KNN.errors,MARGIN=1,FUN=mean)
+j=which(min(CV.KNN)==CV.KNN)
+K.min=c(2:15)[j]
+plot(c(2:15),CV.KNN,
+     xlab="Values of K",
+     ylab="Cross-validation errors",
+     type="l",
+     main="FIGURE 5 : Evolution of Cross-varlidation Errors with knn \n against Values of K")
+axis(1, c(2:15))
+points(K.min , min(CV.KNN),type="p",col="red")
+```
+With the plot above the best value of K is 4 .
+
+```{r echo=TRUE}
+boxplot(OLS.MSE,STEP.MSE,LASSO.MSE,RIDGE.MSE,EN.MSE,KNN.errors[4,],
+main = "FIGURE 6 : Estimating errors boxplots for comparision",
+at = c(1,2,3,4,5,6),
+las = 2,
+border = "brown",ylab="Estimating Errors with Cross-validation"
+)
+text(x = 1:6,
+     y = par("usr")[3] - 4,
+     xpd = NA,
+     srt = 35,
+     cex = 0.9,
+     labels = paste(c("OLS", "STEPWISE", "LASSO", "RIDGE","ELASTIC-NET","KNN,K=4")))
+```
+The figure 6 above describes estimating errors with 5 Cross-validation on each method. \newline \newline
+We can see that OLS method and STEPWISE selection are almost the same which means they end with the same model fitting . \newline \newline
+Lasso and Ridge penalization resulted in almost the same distribution of estimating errors , they almost have the same mean but Ridge penalization has bigger interval than lasso's. \newline \newline
+Compared to others models , Elastic-Net gives us the best model because the mean of estimating errors is the smallest among the 6 methods , and it's interval is the smaller one between the 6 also . \newline
+
+KNN method for regression has made greater estimating errors compared to the other models and it's mean is greater than 15 and compared to other models the mean is in the neighborhood of 10 , so KNN algorithm's prediction is weak comparing to others.\newline
+
+## 3 - Conclusion : \newline 
+By comparing all the models used in the course and the others investigated outside the class, and with the help of the box plots above (FIG 2), we can conclude that the best method to predict the slowness in traffic during the hours of day from 7:00 to 20:00 is using the Elastic-Net model . \newline \newline
+Elastic-Net  is a combination of Lasso and Ridge penalization and we chose to perform a regression with is because it's estimating errors distribution has smaller interval and smaller mean compared to others.\newline \newline
+From the figure 2 above Elastic-Net and Ridge ,Lasso look almost the same and they will give approximately the same prediction,  but if we want to be more accurate and precise we will chose Elastic-Net modeling.
+
